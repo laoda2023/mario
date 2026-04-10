@@ -99,6 +99,47 @@ canvas { display: block; }
   margin-top: 12px;
 }
 
+/* ── 启动画面 ── */
+#startScreen {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(160deg, #1a1a2e, #16213e, #0f3460);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  cursor: pointer;
+}
+
+#startBox {
+  text-align: center;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.startTitle {
+  color: #fff;
+  font-size: 32px;
+  font-weight: bold;
+  margin-bottom: 16px;
+  text-shadow: 0 0 20px rgba(255,200,0,0.8);
+}
+
+.startSub {
+  color: #ffd700;
+  font-size: 22px;
+  margin-bottom: 10px;
+}
+
+.startHint {
+  color: rgba(255,255,255,0.55);
+  font-size: 14px;
+}
+
+@keyframes pulse {
+  0%,100% { transform: scale(1); }
+  50%      { transform: scale(1.06); }
+}
+
 /* ── 爱心动画 ── */
 .heart {
   position: fixed;
@@ -125,6 +166,15 @@ canvas { display: block; }
     <div class="btn" id="btnRight">▶</div>
   </div>
   <div class="btn" id="btnJump">跳</div>
+</div>
+
+<!-- 启动画面：保证音频在用户手势中初始化 -->
+<div id="startScreen">
+  <div id="startBox">
+    <div class="startTitle">🍄 给你的小惊喜</div>
+    <div class="startSub">点击开始游戏</div>
+    <div class="startHint">去找到蘑菇吧 ❤️</div>
+  </div>
 </div>
 
 <!-- 惊喜遮罩 -->
@@ -209,10 +259,11 @@ class MusicPlayer {
   }
 
   // 安排一段音符序列（bpm：每分钟拍数，1拍 = 1/8音符）
+  // 注意：必须在用户手势的同步代码里调用，不能放在 Promise.then 里
   play(sequence, bpm, loop = true) {
     this.stop();
-    // 关键：每次播放前强制恢复 AudioContext（iOS Safari 常常自动暂停）
-    this.actx.resume().then(() => this._schedule(sequence, bpm, loop));
+    this.actx.resume(); // 同步调用，iOS Safari 才认可这是用户手势
+    this._schedule(sequence, bpm, loop);
   }
 
   _schedule(sequence, bpm, loop) {
@@ -270,11 +321,9 @@ function startMusic() {
 function switchToLoveSong() {
   music.fadeTo(0, 0.8);
   setTimeout(() => {
-    music.actx.resume().then(() => {
-      music.gainNode.gain.setValueAtTime(0, music.actx.currentTime);
-      music.gainNode.gain.linearRampToValueAtTime(0.22, music.actx.currentTime + 1.2);
-      music.play(LOVE_SONG, 72);
-    });
+    music.gainNode.gain.setValueAtTime(0, music.actx.currentTime);
+    music.gainNode.gain.linearRampToValueAtTime(0.22, music.actx.currentTime + 1.2);
+    music.play(LOVE_SONG, 72);
   }, 900);
 }
 
@@ -655,6 +704,14 @@ function loop() {
   draw();
   requestAnimationFrame(loop);
 }
+
+// 启动画面点击：在用户手势中同步初始化音频并开始游戏
+document.getElementById('startScreen').addEventListener('click', function() {
+  // 必须在这里同步初始化 + 启动，iOS Safari 才允许播放
+  music.init();
+  music.play(MARIO_THEME, 180);
+  this.style.display = 'none';
+});
 
 setupInput();
 loop();
