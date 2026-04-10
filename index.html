@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🍄 给你的小惊喜</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #000;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+canvas { display: block; }
+
+/* ── 虚拟方向键 ── */
+#controls {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  height: 110px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 28px;
+  background: rgba(0,0,0,0.35);
+  z-index: 10;
+}
+
+.dpad { display: flex; gap: 10px; }
+
+.btn {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  border: 2.5px solid rgba(255,255,255,0.45);
+  color: white;
+  font-size: 20px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+}
+
+.btn.pressed { background: rgba(255,255,255,0.45); }
+
+/* ── 惊喜遮罩 ── */
+#overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.9s ease;
+}
+
+#overlay.show {
+  opacity: 1;
+  pointer-events: all;
+  background: rgba(0,0,0,0.88);
+}
+
+#overlay img {
+  max-width: 88%;
+  max-height: 62vh;
+  border-radius: 18px;
+  box-shadow: 0 0 50px rgba(255, 100, 160, 0.7);
+  transform: scale(0.75);
+  transition: transform 0.9s cubic-bezier(0.34,1.56,0.64,1);
+}
+
+#overlay.show img { transform: scale(1); }
+
+#overlay .msg {
+  color: #fff;
+  font-size: 24px;
+  margin-top: 22px;
+  letter-spacing: 3px;
+  text-shadow: 0 0 20px rgba(255,100,160,0.9);
+}
+
+#overlay .hint {
+  color: rgba(255,255,255,0.45);
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+/* ── 爱心动画 ── */
+.heart {
+  position: fixed;
+  font-size: 26px;
+  pointer-events: none;
+  z-index: 1000;
+  animation: rise 3.5s ease-in forwards;
+}
+
+@keyframes rise {
+  0%   { transform: translateY(0) scale(1) rotate(0deg);   opacity: 1; }
+  100% { transform: translateY(-240px) scale(0.4) rotate(20deg); opacity: 0; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<!-- 虚拟方向键 -->
+<div id="controls">
+  <div class="dpad">
+    <div class="btn" id="btnLeft">◀</div>
+    <div class="btn" id="btnRight">▶</div>
+  </div>
+  <div class="btn" id="btnJump">跳</div>
+</div>
+
+<!-- 惊喜遮罩 -->
+<div id="overlay">
+  <img src="surprise.jpg" alt="惊喜">
+  <div class="msg">❤️ 我爱你 ❤️</div>
+  <div class="hint">轻触任意处关闭</div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════
+//  画布初始化
+// ══════════════════════════════════════════════════
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d');
+
+const CTRL_H = 110;
+const W = window.innerWidth;
+const H = window.innerHeight - CTRL_H;
+canvas.width  = W;
+canvas.height = H;
+
+// ══════════════════════════════════════════════════
+//  物理参数
+// ══════════════════════════════════════════════════
+const GRAVITY    = 0.55;
+const JUMP_FORCE = -13;
+const SPEED      = 3.8;
+
+// ══════════════════════════════════════════════════
+//  地面 & 平台
+// ══════════════════════════════════════════════════
+const GY = H - 50; // 地面顶部 y
+
+const platforms = [
+  { x: 0,         y: GY,         w: W,         h: 50  }, // 地面
+  { x: W*0.05,    y: GY - 130,   w: W*0.23,    h: 18  }, // 平台 1（左）
+  { x: W*0.38,    y: GY - 210,   w: W*0.22,    h: 18  }, // 平台 2（中）
+  { x: W*0.67,    y: GY - 155,   w: W*0.28,    h: 18  }, // 平台 3（右，蘑菇在这里）
+];
+
+// ══════════════════════════════════════════════════
+//  玩家
+// ══════════════════════════════════════════════════
+const PW = 32, PH = 48;
+const player = {
+  x: 20, y: GY - PH,
+  vx: 0, vy: 0,
+  onGround: false,
+  facingRight: true,
+  frame: 0,
+  frameTimer: 0,
+};
+
+// ══════════════════════════════════════════════════
+//  蘑菇
+// ══════════════════════════════════════════════════
+const mushroom = {
+  x: platforms[3].x + platforms[3].w / 2 - 20,
+  y: platforms[3].y - 52,
+  w: 40, h: 52,
+  collected: false,
+};
+
+// ══════════════════════════════════════════════════
+//  输入
+// ══════════════════════════════════════════════════
+const keys     = { left: false, right: false, jump: false };
+let   prevJump = false;
+
+function setupInput() {
+  const btnLeft  = document.getElementById('btnLeft');
+  const btnRight = document.getElementById('btnRight');
+  const btnJump  = document.getElementById('btnJump');
+
+  function press(k, btn)   { keys[k] = true;  btn.classList.add('pressed');    }
+  function release(k, btn) { keys[k] = false; btn.classList.remove('pressed'); }
+
+  btnLeft.addEventListener('touchstart',  e => { e.preventDefault(); press('left', btnLeft);    }, { passive: false });
+  btnLeft.addEventListener('touchend',    e => { e.preventDefault(); release('left', btnLeft);  }, { passive: false });
+  btnRight.addEventListener('touchstart', e => { e.preventDefault(); press('right', btnRight);  }, { passive: false });
+  btnRight.addEventListener('touchend',   e => { e.preventDefault(); release('right', btnRight);}, { passive: false });
+  btnJump.addEventListener('touchstart',  e => { e.preventDefault(); press('jump', btnJump);    }, { passive: false });
+  btnJump.addEventListener('touchend',    e => { e.preventDefault(); release('jump', btnJump);  }, { passive: false });
+
+  // 鼠标（电脑测试用）
+  btnLeft.addEventListener('mousedown',  () => press('left', btnLeft));
+  btnLeft.addEventListener('mouseup',    () => release('left', btnLeft));
+  btnRight.addEventListener('mousedown', () => press('right', btnRight));
+  btnRight.addEventListener('mouseup',   () => release('right', btnRight));
+  btnJump.addEventListener('mousedown',  () => press('jump', btnJump));
+  btnJump.addEventListener('mouseup',    () => release('jump', btnJump));
+
+  // 键盘（电脑测试用）
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft')                keys.left  = true;
+    if (e.key === 'ArrowRight')               keys.right = true;
+    if (e.key === 'ArrowUp' || e.key === ' ') keys.jump  = true;
+  });
+  document.addEventListener('keyup', e => {
+    if (e.key === 'ArrowLeft')                keys.left  = false;
+    if (e.key === 'ArrowRight')               keys.right = false;
+    if (e.key === 'ArrowUp' || e.key === ' ') keys.jump  = false;
+  });
+}
+
+// ══════════════════════════════════════════════════
+//  更新逻辑
+// ══════════════════════════════════════════════════
+function update() {
+  // 水平移动
+  if      (keys.left)  { player.vx = -SPEED; player.facingRight = false; }
+  else if (keys.right) { player.vx =  SPEED; player.facingRight = true;  }
+  else                 { player.vx = 0; }
+
+  // 跳跃（上升沿触发，避免长按连跳）
+  if (keys.jump && !prevJump && player.onGround) {
+    player.vy      = JUMP_FORCE;
+    player.onGround = false;
+  }
+  prevJump = keys.jump;
+
+  // 重力
+  player.vy += GRAVITY;
+  player.x  += player.vx;
+  player.y  += player.vy;
+
+  // 左右边界
+  player.x = Math.max(0, Math.min(W - PW, player.x));
+
+  // 平台碰撞（只检测从上方落下）
+  player.onGround = false;
+  for (const p of platforms) {
+    const overlapX  = player.x + PW > p.x && player.x < p.x + p.w;
+    const feetWas   = player.y + PH - player.vy;
+    const feetNow   = player.y + PH;
+    if (overlapX && player.vy >= 0 && feetWas <= p.y + 1 && feetNow >= p.y) {
+      player.y        = p.y - PH;
+      player.vy       = 0;
+      player.onGround = true;
+    }
+  }
+
+  // 行走帧动画
+  if (player.vx !== 0 && player.onGround) {
+    if (++player.frameTimer > 8) { player.frame = 1 - player.frame; player.frameTimer = 0; }
+  } else if (player.onGround) {
+    player.frame = 0;
+  }
+
+  // 蘑菇碰撞
+  if (!mushroom.collected) {
+    const hit = player.x + PW > mushroom.x && player.x < mushroom.x + mushroom.w &&
+                player.y + PH > mushroom.y && player.y < mushroom.y + mushroom.h;
+    if (hit) { mushroom.collected = true; triggerSurprise(); }
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  绘制
+// ══════════════════════════════════════════════════
+function drawBackground() {
+  // 天空渐变
+  const sky = ctx.createLinearGradient(0, 0, 0, GY);
+  sky.addColorStop(0, '#3a7bd5');
+  sky.addColorStop(1, '#87ceeb');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // 云朵
+  [[W*0.1, H*0.1, 80], [W*0.45, H*0.07, 100], [W*0.78, H*0.13, 70]].forEach(([cx, cy, r]) => {
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.beginPath();
+    ctx.arc(cx,          cy,          r*0.42, 0, Math.PI*2);
+    ctx.arc(cx + r*0.38, cy - r*0.14, r*0.34, 0, Math.PI*2);
+    ctx.arc(cx + r*0.72, cy,          r*0.38, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // 装饰树（简单三角）
+  [[W*0.18, GY], [W*0.55, GY], [W*0.85, GY]].forEach(([tx, ty]) => {
+    ctx.fillStyle = '#2d8a00';
+    ctx.beginPath();
+    ctx.moveTo(tx, ty - 60);
+    ctx.lineTo(tx - 25, ty);
+    ctx.lineTo(tx + 25, ty);
+    ctx.fill();
+    ctx.fillStyle = '#5aad00';
+    ctx.beginPath();
+    ctx.moveTo(tx, ty - 85);
+    ctx.lineTo(tx - 18, ty - 35);
+    ctx.lineTo(tx + 18, ty - 35);
+    ctx.fill();
+    // 树干
+    ctx.fillStyle = '#6b3f1a';
+    ctx.fillRect(tx - 5, ty - 10, 10, 10);
+  });
+
+  // 地面
+  ctx.fillStyle = '#5aad00';
+  ctx.fillRect(0, GY, W, 18);
+  ctx.fillStyle = '#8b5e2e';
+  ctx.fillRect(0, GY + 18, W, 32);
+
+  // 平台（砖块风格）
+  for (let i = 1; i < platforms.length; i++) {
+    const p = platforms[i];
+    // 阴影
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(p.x + 3, p.y + 3, p.w, p.h);
+    // 主体
+    ctx.fillStyle = '#c97a28';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    // 顶部高光
+    ctx.fillStyle = '#e8953a';
+    ctx.fillRect(p.x, p.y, p.w, 4);
+    // 砖块线
+    ctx.strokeStyle = '#a05a1a';
+    ctx.lineWidth = 1;
+    for (let bx = p.x; bx < p.x + p.w; bx += 22) {
+      ctx.strokeRect(bx, p.y, 22, p.h);
+    }
+  }
+}
+
+function drawMushroom() {
+  if (mushroom.collected) return;
+  const bounce = Math.sin(Date.now() / 350) * 3;
+  const x = mushroom.x;
+  const y = mushroom.y + bounce;
+
+  // 阴影
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath();
+  ctx.ellipse(x + 20, mushroom.y + mushroom.h + 2, 18, 5, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // 茎
+  ctx.fillStyle = '#f5deb3';
+  ctx.fillRect(x + 11, y + 28, 18, 24);
+  ctx.strokeStyle = '#c8a96e'; ctx.lineWidth = 1;
+  ctx.strokeRect(x + 11, y + 28, 18, 24);
+
+  // 帽子
+  ctx.fillStyle = '#e52521';
+  ctx.beginPath();
+  ctx.arc(x + 20, y + 25, 23, Math.PI, 0);
+  ctx.fill();
+  ctx.fillRect(x - 4, y + 22, 48, 7);
+
+  // 帽沿描边
+  ctx.strokeStyle = '#a01510'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x + 20, y + 25, 23, Math.PI, 0);
+  ctx.stroke();
+
+  // 白色圆点
+  ctx.fillStyle = 'white';
+  [[x+11, y+13, 6.5], [x+29, y+13, 6.5], [x+20, y+25, 4.5]].forEach(([sx, sy, sr]) => {
+    ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI*2); ctx.fill();
+  });
+
+  // 蘑菇上方提示箭头
+  ctx.fillStyle = 'rgba(255,255,0,0.85)';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('▼', x + 20, y - 8 + bounce);
+}
+
+function drawPlayer() {
+  const x = player.x;
+  const y = player.y;
+  const f = player.frame;
+
+  ctx.save();
+  if (!player.facingRight) {
+    ctx.translate(x + PW, 0);
+    ctx.scale(-1, 1);
+    ctx.translate(-x, 0);
+  }
+
+  // 鞋子
+  ctx.fillStyle = '#3d1e00';
+  if (f === 0) {
+    ctx.fillRect(x + 1,  y + 42, 13, 6);
+    ctx.fillRect(x + 18, y + 42, 13, 6);
+  } else {
+    ctx.fillRect(x - 1,  y + 42, 15, 6);
+    ctx.fillRect(x + 19, y + 42, 14, 6);
+  }
+
+  // 裤腿
+  ctx.fillStyle = '#0044bb';
+  ctx.fillRect(x + 4,  y + 32, 11, 12);
+  ctx.fillRect(x + 17, y + 32, 11, 12);
+
+  // 工装裤主体
+  ctx.fillStyle = '#0044bb';
+  ctx.fillRect(x + 3, y + 18, 26, 16);
+
+  // 衬衫（袖子）
+  ctx.fillStyle = '#e52521';
+  ctx.fillRect(x,      y + 22, 5,  10);
+  ctx.fillRect(x + 27, y + 22, 5,  10);
+
+  // 工装裤背带
+  ctx.fillStyle = '#0044bb';
+  ctx.fillRect(x + 5,  y + 14, 8, 6);
+  ctx.fillRect(x + 19, y + 14, 8, 6);
+
+  // 头部皮肤
+  ctx.fillStyle = '#fab98d';
+  ctx.fillRect(x + 4, y + 8, 24, 16);
+
+  // 帽子沿
+  ctx.fillStyle = '#e52521';
+  ctx.fillRect(x - 1, y + 5, 34, 6);
+  // 帽顶
+  ctx.fillRect(x + 4, y,     24, 7);
+
+  // 眼睛
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x + 9,  y + 12, 4, 4);
+  ctx.fillRect(x + 19, y + 12, 4, 4);
+
+  // 眼白高光
+  ctx.fillStyle = 'white';
+  ctx.fillRect(x + 11, y + 12, 2, 2);
+  ctx.fillRect(x + 21, y + 12, 2, 2);
+
+  // 胡子
+  ctx.fillStyle = '#5a3000';
+  ctx.fillRect(x + 7,  y + 19, 18, 4);
+
+  ctx.restore();
+}
+
+function drawHint() {
+  if (mushroom.collected) return;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillText('🍄 走过去吃掉蘑菇！', W / 2, 26);
+  ctx.textAlign = 'left';
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  drawMushroom();
+  drawPlayer();
+  drawHint();
+}
+
+// ══════════════════════════════════════════════════
+//  惊喜效果
+// ══════════════════════════════════════════════════
+function spawnHeart() {
+  const el = document.createElement('div');
+  el.className = 'heart';
+  el.textContent = ['❤️','💕','💖','💗','💓'][Math.floor(Math.random()*5)];
+  el.style.left   = (10 + Math.random() * 80) + 'vw';
+  el.style.bottom = '120px';
+  el.style.animationDuration = (2.5 + Math.random() * 2) + 's';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+function triggerSurprise() {
+  const overlay = document.getElementById('overlay');
+  overlay.classList.add('show');
+  for (let i = 0; i < 16; i++) {
+    setTimeout(spawnHeart, i * 120);
+  }
+  overlay.addEventListener('click', () => {
+    overlay.classList.remove('show');
+  }, { once: true });
+}
+
+// ══════════════════════════════════════════════════
+//  游戏主循环
+// ══════════════════════════════════════════════════
+function loop() {
+  if (!mushroom.collected) update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+setupInput();
+loop();
+</script>
+</body>
+</html>
