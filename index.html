@@ -211,12 +211,17 @@ class MusicPlayer {
   // 安排一段音符序列（bpm：每分钟拍数，1拍 = 1/8音符）
   play(sequence, bpm, loop = true) {
     this.stop();
+    // 关键：每次播放前强制恢复 AudioContext（iOS Safari 常常自动暂停）
+    this.actx.resume().then(() => this._schedule(sequence, bpm, loop));
+  }
+
+  _schedule(sequence, bpm, loop) {
     const beat = 60 / bpm / 2; // 1/8音符时长（秒）
-    let   t    = this.actx.currentTime + 0.05;
+    let   t    = this.actx.currentTime + 0.1;
     let   total= 0;
 
     for (const [note, beats] of sequence) {
-      const freq = NOTE_FREQ[note] ?? 0;
+      const freq = NOTE_FREQ[note] || 0;
       const dur  = beats * beat;
       if (freq > 0) {
         const osc = this.actx.createOscillator();
@@ -240,7 +245,7 @@ class MusicPlayer {
 
     if (loop) {
       // 提前 0.3 秒重新调度，确保无缝循环
-      this.loopTimer = setTimeout(() => this.play(sequence, bpm, true),
+      this.loopTimer = setTimeout(() => this._schedule(sequence, bpm, true),
                                   (total - 0.3) * 1000);
     }
   }
@@ -263,11 +268,13 @@ function startMusic() {
 }
 
 function switchToLoveSong() {
-  music.fadeTo(0, 0.8); // 先淡出
+  music.fadeTo(0, 0.8);
   setTimeout(() => {
-    music.gainNode.gain.setValueAtTime(0, music.actx.currentTime);
-    music.gainNode.gain.linearRampToValueAtTime(0.22, music.actx.currentTime + 1.2);
-    music.play(LOVE_SONG, 72); // 月亮代表我的心，BPM=72
+    music.actx.resume().then(() => {
+      music.gainNode.gain.setValueAtTime(0, music.actx.currentTime);
+      music.gainNode.gain.linearRampToValueAtTime(0.22, music.actx.currentTime + 1.2);
+      music.play(LOVE_SONG, 72);
+    });
   }, 900);
 }
 
