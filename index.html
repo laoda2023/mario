@@ -291,9 +291,11 @@ function startMusic() {
   music.play(MARIO_THEME, 180);
 }
 
+let loveSongTimer = null;
+
 function switchToLoveSong() {
   music.fadeTo(0, 0.8);
-  setTimeout(() => {
+  loveSongTimer = setTimeout(() => {
     music.gainNode.gain.setValueAtTime(0, music.actx.currentTime);
     music.gainNode.gain.linearRampToValueAtTime(0.22, music.actx.currentTime + 1.2);
     music.play(LOVE_SONG, 72);
@@ -301,7 +303,9 @@ function switchToLoveSong() {
 }
 
 function playVideo() {
+  clearTimeout(loveSongTimer);
   music.stop();
+  if (music.gainNode) music.gainNode.gain.setValueAtTime(0, music.actx.currentTime);
   document.querySelector('#overlay img').style.display = 'none';
   document.querySelector('.videoBtn').style.display = 'none';
   const vid = document.getElementById('surpriseVideo');
