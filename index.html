@@ -301,6 +301,7 @@ function switchToLoveSong() {
 }
 
 function playVideo() {
+  music.stop();
   document.querySelector('#overlay img').style.display = 'none';
   document.querySelector('.videoBtn').style.display = 'none';
   const vid = document.getElementById('surpriseVideo');
