@@ -100,13 +100,6 @@ canvas { display: block; }
 }
 .videoBtn:hover { background: linear-gradient(135deg, #ff4466, #ff6b9d); }
 
-#surpriseVideo {
-  display: none;
-  max-width: 88%;
-  max-height: 62vh;
-  border-radius: 18px;
-  margin-top: 20px;
-}
 
 @keyframes btnPulse {
   0%,100% { transform: scale(1); box-shadow: 0 0 30px rgba(255,80,120,0.7); }
@@ -190,7 +183,6 @@ canvas { display: block; }
 <div id="overlay">
   <img src="game.png" alt="惊喜">
   <button class="videoBtn" onclick="playVideo()">点击开启幸福之旅</button>
-  <video id="surpriseVideo" src="0524(1).mp4" controls playsinline preload="none"></video>
 </div>
 
 <script>
@@ -308,8 +300,13 @@ function playVideo() {
   if (music.gainNode) music.gainNode.gain.setValueAtTime(0, music.actx.currentTime);
   document.querySelector('#overlay img').style.display = 'none';
   document.querySelector('.videoBtn').style.display = 'none';
-  const vid = document.getElementById('surpriseVideo');
-  vid.style.display = 'block';
+  const vid = document.createElement('video');
+  vid.src = '0524(1).mp4';
+  vid.controls = true;
+  vid.setAttribute('playsinline', '');
+  vid.setAttribute('webkit-playsinline', '');
+  vid.style.cssText = 'max-width:88%;max-height:62vh;border-radius:18px;margin-top:20px;';
+  document.getElementById('overlay').appendChild(vid);
   vid.play();
 }
 
